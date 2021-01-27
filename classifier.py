@@ -17,33 +17,37 @@ class TextClassifier(pl.LightningModule):
 
         self.dataloader_params = dataloader_params
         self.train, self.test, self.val = split_dataset()
+        self.rnn = nn.LSTM(300, 300)
         self.classifier = nn.Sequential(
-            nn.LSTM(300, 300),
             nn.Linear(300, 100),
             nn.ReLU(),
             nn.Linear(100, 7)
         )
 
     def forward(self, x):
+        x, _ = self.rnn(x)
+        x = x[:,-1]
         pred = self.classifier(x)
         return pred
 
     def training_step(self, batch, batch_idx):
-        y = batch["response"]#.numpy()[0]
+
+        y = torch.tensor([1 if x == batch["response"] else 0 for x in range(7)]).reshape(1,7)
+
         x = batch["documents"]
         y_hat = self.classifier(x)
         loss = nn.CrossEntropyLoss(y_hat, y)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        y = batch["response"]#.numpy()[0]
+        y = torch.tensor([1 if x == batch["response"] else 0 for x in range(7)]).reshape(1,7)
         x = batch["documents"]
         y_hat = self.classifier(x)
         loss = nn.CrossEntropyLoss(y_hat, y)
         self.log('valid_loss', loss, on_step=True)
 
     def test_step(self, batch, batch_idx):
-        y = batch["response"]#.numpy()[0]
+        y = torch.tensor([1 if x == batch["response"] else 0 for x in range(7)]).reshape(1,7)
         x = batch["documents"]
         y_hat = self.classifier(x)
         loss = nn.CrossEntropyLoss(y_hat, y)
@@ -69,5 +73,8 @@ dataloader_params = {
 }
 torch.cuda.device("cuda:0")
 model = TextClassifier(dataloader_params)
+
+"""
 trainer = Trainer()
 trainer.fit(model)
+"""
