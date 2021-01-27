@@ -16,7 +16,7 @@ class TextClassifier(pl.LightningModule):
         super().__init__()
 
         self.dataloader_params = dataloader_params
-        self.train, self.test, self.val = split_dataset()
+        self.train_data, self.test_data, self.val_data = split_dataset()
         self.rnn = nn.LSTM(300, 300)
         self.classifier = nn.Sequential(
             nn.Linear(300, 100),
@@ -58,23 +58,20 @@ class TextClassifier(pl.LightningModule):
         return optimizer
 
     def train_dataloader(self):
-        return DataLoader(self.train, **self.dataloader_params)
+        return DataLoader(self.train_data, **self.dataloader_params)
 
     def val_dataloader(self):
-        return DataLoader(self.val, **self.dataloader_params)
+        return DataLoader(self.val_data, **self.dataloader_params)
 
     def test_dataloader(self):
-        return DataLoader(self.test, **self.dataloader_params)
+        return DataLoader(self.test_data, **self.dataloader_params)
 
 
 dataloader_params = {
     "batch_size": 1,
     "shuffle": True
 }
-torch.cuda.device("cuda:0")
+torch.device("cpu")
 model = TextClassifier(dataloader_params)
-
-"""
 trainer = Trainer()
 trainer.fit(model)
-"""
