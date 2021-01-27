@@ -14,7 +14,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-class Dataset(Dataset):
+class PreProcessDataset(Dataset):
     """Dataset desccription."""
 
     def __init__(self, data):
@@ -30,3 +30,19 @@ class Dataset(Dataset):
         text = self.data["text"][idx]
         author = self.data["author"][idx]
         return text, author
+
+class RunDataset(Dataset):
+    """Dataset desccription."""
+
+    def __init__(self, data):
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+
+    def set_data(self, other):
+        self.data = pd.concat([self.data, other.data], axis=1)
+
+    def __getitem__(self, idx):
+        text = self.data[idx]
+        return text
