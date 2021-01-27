@@ -1,12 +1,12 @@
 import pandas as pd
-from dataset import Dataset
+from dataset import PreProcessDataset, RunDataset
 from torch.utils.data import random_split
 import torch
 import spacy
 from whatthelang import WhatTheLang
 from tqdm import tqdm
 import numpy as np
-import pickle
+from pickle5 import pickle
 
 def apply_transforms(x):
     return x
@@ -67,7 +67,7 @@ def split_dataset(ratio=None):
     data = None
     with open("data.pickle", mode="rb") as handle:
         data = pickle.load(handle)
-    dataset = Dataset(data=data)
+    dataset = RunDataset(data=data)
     train_size, val_size, test_size = int(train_r * len(dataset)), int(val_r * len(dataset)), int(test_r * len(dataset))
     diff = len(dataset) - train_size - val_size - test_size
     split = random_split(dataset,
