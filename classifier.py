@@ -10,12 +10,16 @@ from torch.utils.data import DataLoader
 from utils import split_dataset
 from pytorch_lightning import Trainer
 from torch.utils.tensorboard import SummaryWriter
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 class TextClassifier(pl.LightningModule):
 
     def __init__(self, dataloader_params=None):
         super().__init__()
 
+        # for logging
+        self.train_epoch_counter, self.val_epoch_counter, self.test_epoch_counter = 0, 0, 0
+        self.tracker = {"training": [], "validation": [], "test": []}
         self.dataloader_params = dataloader_params
         self.train_data, self.test_data, self.val_data = split_dataset()
         self.writer = SummaryWriter()
@@ -37,24 +41,27 @@ class TextClassifier(pl.LightningModule):
         x = batch["document"]
         y_hat = self.forward(x)
         loss = nn.CrossEntropyLoss()
+        loss = loss(y_hat, y)
         self.log_loss("training", loss, batch_idx)
-        return {"loss":loss(y_hat, y)}
+        return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
         y = batch["response"]
         x = batch["document"]
         y_hat = self.forward(x)
         loss = nn.CrossEntropyLoss()
+        loss = loss(y_hat, y)
         self.log_loss("validation", loss, batch_idx)
-        return {"loss": loss(y_hat, y)}
+        return {"loss": loss}
 
     def test_step(self, batch, batch_idx):
         y = batch["response"]
         x = batch["document"]
         y_hat = self.forward(x)
         loss = nn.CrossEntropyLoss()
+        loss = loss(y_hat, y)
         self.log_loss("test", loss, batch_idx)
-        return {"loss": loss(y_hat, y)}
+        return {"loss": loss}
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
@@ -71,6 +78,7 @@ class TextClassifier(pl.LightningModule):
 
     def log_loss(self, mode, loss, i):
         # for every epoch log 10 times
+        self.writer.add_scalar(f"{mode}_loss", loss)
         if mode == "training":
             frequency = int(len(self.train_data) / 10) - 1
         elif mode == "test":
@@ -80,7 +88,6 @@ class TextClassifier(pl.LightningModule):
         if i % frequency + 1 == 0:
             self.writer.add_scalar(f"{mode}_loss", loss)
 
-
 dataloader_params = {
     "batch_size": 1,
     "shuffle": True
@@ -88,6 +95,7 @@ dataloader_params = {
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.device(device)
 model = TextClassifier(dataloader_params)
-trainer = Trainer(min_epochs=1, max_epochs=3)
+trainer = Trainer(min_epochs=1, max_epochs=40)
 trainer.fit(model)
 model.writer.close()
+torch.save(model.state_dict(), "Models/model_1.pt")
