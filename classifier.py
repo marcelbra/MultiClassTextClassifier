@@ -11,23 +11,53 @@ from utils import split_dataset
 from pytorch_lightning import Trainer
 from torch.utils.tensorboard import SummaryWriter
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 class TextClassifier(pl.LightningModule):
 
-    def __init__(self, dataloader_params=None):
+    def __init__(self, hparams=None):
         super().__init__()
 
-        # for logging
-        self.train_epoch_counter, self.val_epoch_counter, self.test_epoch_counter = 0, 0, 0
-        self.tracker = {"training": [], "validation": [], "test": []}
-        self.dataloader_params = dataloader_params
+        # Metrics
+        self.train_acc = pl.metrics.Accuracy()
+        self.val_acc = pl.metrics.Accuracy(compute_on_step=False)
+        self.test_acc = pl.metrics.Accuracy(compute_on_step=False)
+
+        # Hyperparameters
+        self.hparams = hparams
+
+        # Data
         self.train_data, self.test_data, self.val_data = split_dataset()
-        self.writer = SummaryWriter()
-        self.rnn = nn.LSTM(300, 300)
-        self.classifier = nn.Sequential(
-            nn.Linear(300, 100),
+
+        # Model initialization
+        self.word_vec_size = 300
+        self.amount_classes = 7
+        self.rnn = nn.LSTM(input_size=self.word_vec_size,
+                           hidden_size=hparams["lstm_hidden_dim"])
+
+        # First FC layer
+        modules = [
+            nn.Linear(self.word_vec_size, hparams["FC_layer_dims"][0]),
             nn.ReLU(),
-            nn.Linear(100, 7)
+            nn.Dropout(hparams["FC_dropouts"][0])
+        ]
+
+        # Middle FC layers
+        for i, (dim, d_rate) in enumerate(zip(hparams["FC_layer_dims"],
+                                              hparams["FC_dropouts"])):
+            if i == len(hparams["FC_layer_dims"]) - 1: continue # we reached the end
+            modules.append(nn.Linear(dim, hparams["FC_layer_dims"][i+1]))
+            modules.append(nn.ReLU())
+            modules.append(nn.Dropout(d_rate))
+
+        # Last FC layer
+        modules.append(nn.Linear(hparams["FC_layer_dims"][-1], self.amount_classes))
+        modules.append(nn.ReLU())
+        modules.append(nn.Dropout(hparams["FC_dropouts"][-1]))
+
+        self.classifier = nn.Sequential(
+            *modules
         )
 
     def forward(self, x):
@@ -42,8 +72,15 @@ class TextClassifier(pl.LightningModule):
         y_hat = self.forward(x)
         loss = nn.CrossEntropyLoss()
         loss = loss(y_hat, y)
-        self.log_loss("training", loss, batch_idx)
+        self.log("training_loss", loss)
+        self.log("training_acc_step", self.train_acc(y_hat, y))
         return {"loss": loss}
+
+    def training_epoch_end(self, outs):
+        self.log('train_acc_epoch', self.train_acc.compute())
+
+    def train_dataloader(self):
+        return DataLoader(self.train_data, batch_size=1, shuffle=True)
 
     def validation_step(self, batch, batch_idx):
         y = batch["response"]
@@ -51,8 +88,15 @@ class TextClassifier(pl.LightningModule):
         y_hat = self.forward(x)
         loss = nn.CrossEntropyLoss()
         loss = loss(y_hat, y)
-        self.log_loss("validation", loss, batch_idx)
+        self.log("val_loss", loss)
+        self.val_acc(y_hat, y)
         return {"loss": loss}
+
+    def validation_epoch_end(self, outs):
+        self.log('validation_acc_epoch', self.val_acc.compute())
+
+    def val_dataloader(self):
+        return DataLoader(self.val_data, batch_size=1)
 
     def test_step(self, batch, batch_idx):
         y = batch["response"]
@@ -60,42 +104,16 @@ class TextClassifier(pl.LightningModule):
         y_hat = self.forward(x)
         loss = nn.CrossEntropyLoss()
         loss = loss(y_hat, y)
-        self.log_loss("test", loss, batch_idx)
+        self.log("test_loss", loss)
+        self.test_acc(y_hat, y)
         return {"loss": loss}
 
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
-
-    def train_dataloader(self):
-        return DataLoader(self.train_data, batch_size=1, shuffle=True)
-
-    def val_dataloader(self):
-        return DataLoader(self.val_data, batch_size=1)
+    def test_step_end(self, *args, **kwargs):
+        self.log("test_acc", self.test_acc.compute())
 
     def test_dataloader(self):
         return DataLoader(self.test_data, batch_size=1)
 
-    def log_loss(self, mode, loss, i):
-        # for every epoch log 10 times
-        self.writer.add_scalar(f"{mode}_loss", loss)
-        if mode == "training":
-            frequency = int(len(self.train_data) / 10) - 1
-        elif mode == "test":
-            frequency = int(len(self.test_data) / 10) - 1
-        elif mode == "validation":
-            frequency = int(len(self.val_data) / 10) - 1
-        if i % frequency + 1 == 0:
-            self.writer.add_scalar(f"{mode}_loss", loss)
-
-dataloader_params = {
-    "batch_size": 1,
-    "shuffle": True
-}
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.device(device)
-model = TextClassifier(dataloader_params)
-trainer = Trainer(min_epochs=1, max_epochs=40)
-trainer.fit(model)
-model.writer.close()
-torch.save(model.state_dict(), "Models/model_1.pt")
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        return optimizer
