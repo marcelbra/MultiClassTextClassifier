@@ -7,6 +7,8 @@ from whatthelang import WhatTheLang
 from tqdm import tqdm
 import numpy as np
 import sys
+from nltk.tokenize import sent_tokenize
+from sklearn.feature_extraction.text import TfidfTransformer, CountVectorizer
 
 version = sys.version.split(" ")[0]
 if version == "3.8.5":
@@ -20,7 +22,7 @@ def apply_transforms(x):
 def get_word_embeddings():
     vecs = dict()
     languages = ["de", "fr", "it", "en", "da"]
-    dir = "/home/marcelbraasch/PycharmProjects/MultiTextClassifier/Data/"
+    dir = "/home/marcelbraasch/PycharmProjects/MultiClassTextClassifier/Data/"
     for lang in tqdm(languages):
         curr_vec = dict()
         with open(dir + f"wiki.multi.{lang}.vec", encoding="utf-8") as f:
@@ -48,6 +50,17 @@ def get_tokenizers():
     }
     return tokenizers
 
+def sent_tokenizer(text, lang):
+    mapping = {
+        "de": "german",
+        "fr": "french",
+        "it": "italien",
+        "da": "danish",
+        "en": "english",
+    }
+    return sent_tokenize(text=text,
+                         language=mapping[lang])
+
 def get_label_map(data):
     label_map = dict()
     counter = 0
@@ -58,8 +71,8 @@ def get_label_map(data):
     return label_map
 
 def get_data_as_df():
-    train_path = "/home/marcelbraasch/PycharmProjects/MultiTextClassifier/Data/classifier_data_train.json"
-    eval_path = "/home/marcelbraasch/PycharmProjects/MultiTextClassifier/Data/classifier_data_eval.json"
+    train_path = "/home/marcelbraasch/PycharmProjects/MultiClassTextClassifier/Data/classifier_data_train.json"
+    eval_path = "/home/marcelbraasch/PycharmProjects/MultiClassTextClassifier/Data/classifier_data_eval.json"
     train = pd.read_json(train_path, lines=True)
     eval = pd.read_json(eval_path, lines=True)
     data = pd.concat([train, eval], axis=0)
@@ -71,7 +84,7 @@ def split_dataset(ratio=None):
     ratio = [.8, .1, .1] if ratio == None else ratio
     train_r, val_r, test_r = ratio
     data = None
-    with open("data.pickle", mode="rb") as handle:
+    with open("data_omitted.pickle", mode="rb") as handle:
         data = pickle.load(handle)
     data = [{"response":x["response"], "document":x["document"].float()} for x in data]
     dataset = RunDataset(data=data)
@@ -109,15 +122,17 @@ def create_training_samples():
             if word in embedder:
                 embedding = torch.tensor(embedder[word]).reshape(1, 300)
                 good +=1
-            else: # this is an unknown word
-                embedding = torch.ones(1, 300)
-                bad += 1
-            if not document == None:
-                document = torch.cat([document, embedding], 0)
-            else:
-                document = embedding
+                """
+                else: # this is an unknown word
+                    embedding = torch.ones(1, 300)
+                    bad += 1
+                """
+                if not document == None:
+                    document = torch.cat([document, embedding], 0)
+                else:
+                    document = embedding
         # cut off all docs > 100:
-        document = document[:100]
+        if document==None: continue
         # pad with zeros
         #print(f"Good-Ratio: {good/(good+bad)}")
         ready_data.append({
@@ -126,9 +141,41 @@ def create_training_samples():
         })
     return ready_data
 
+def create_training_samples_sents():
+
+    wtl = WhatTheLang()
+    data = get_data_as_df()
+    label_map = get_label_map(data)
+
+    ready_data = []
+    for author, text, lang in tqdm(list(zip(data["author"], data["text"], data["lang"]))):
+        # Get correct language, if inconsistent correct by hand
+        #pred_lang = wtl.predict_lang(text)
+        if lang not in ["de", "fr", "en", "it", "da"]:
+            continue
+        ready_data.append(text)
+        """
+        # Get correct tokenizer and embedder
+        sentences = sent_tokenizer(text, lang)
+
+        
+        ready_data.append({
+            "response": label_map[author],
+            "document": document
+        })
+        """
+        """
+    s = 0
+    cv = CountVectorizer()
+    word_count_vector = cv.fit_transform(ready_data)
+    print(word_count_vector.shape)
+    print(get_label_map(data))"""
+    return ready_data
+
+
 def pickle_data():
     data = create_training_samples()
-    with open("data.pickle", mode="wb") as handle:
+    with open("data_omitted.pickle", mode="wb") as handle:
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 def unpickle_data():
@@ -136,3 +183,5 @@ def unpickle_data():
     with open("data.pickle", mode="rb") as handle:
         data = pickle.load(handle)
     return data
+
+#pickle_data()

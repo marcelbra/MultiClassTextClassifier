@@ -31,10 +31,14 @@ class TextClassifier(pl.LightningModule):
         self.train_data, self.test_data, self.val_data = split_dataset()
 
         # Model initialization
-        self.word_vec_size = 300
+        multiplier = 2 if hparams["bidirectional"] else 1
+        self.word_vec_size = 300 * multiplier
         self.amount_classes = 7
         self.rnn = nn.LSTM(input_size=self.word_vec_size,
-                           hidden_size=hparams["lstm_hidden_dim"])
+                           hidden_size=hparams["lstm_hidden_dim"],
+                           bidirectional=hparams["bidirectional"],
+                           num_layers=hparams["lstm_num_layers"]
+                           )
 
         # First FC layer
         modules = [
@@ -115,5 +119,17 @@ class TextClassifier(pl.LightningModule):
         return DataLoader(self.test_data, batch_size=1)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        if self.hparams["optimizer"] == "Adam":
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams["lr"])
+        else:
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams["lr"])
         return optimizer
+
+    def get_confusion(self):
+        test_data = iter(self.test_dataloader())
+        confusion = [[0] *self.amount_classes for x in range(self.amount_classes)]
+        for x in test_data:
+            y_hat = torch.argmax(self.forward(x["document"]))
+            y = x["response"]
+            confusion[y][y_hat] += 1
+        return confusion
